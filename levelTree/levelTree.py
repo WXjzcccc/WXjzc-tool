@@ -68,7 +68,8 @@ def main():
     print('[yellow][+]请拖入文件，只包含id和上级id，以制表符分割，无需表头：')
     file = input()
     start_time = time.time()
-    level_data = read_data(file.replace('"',''))
+    file = file.replace('"','')
+    level_data = read_data(file)
     total = []
     user = {}
     for v in level_data.keys():
