@@ -101,6 +101,14 @@ class DB:
 if __name__ == '__main__':
     warnings.simplefilter('ignore',category=UserWarning)
     pretty.install()
+    print(r'''
+     _ _    ____       _          
+  __| | |__|___ \__  _| |_____  __
+ / _` | '_ \ __) \ \/ / / __\ \/ /
+| (_| | |_) / __/ >  <| \__ \>  < 
+ \__,_|_.__/_____/_/\_\_|___/_/\_\
+                                  Author: WXjzc
+''')
     print('[bold green]MySQL数据导出，将大表分割导出若干csv或者xlsx文件，注意分割文件数量不能超过100')
     host = my_input('[bold yellow][+]\t请输入host（默认localhost）：')
     port = my_input('[bold yellow][+]\t请输入端口（默认3306）：')
