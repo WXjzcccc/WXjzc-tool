@@ -1,0 +1,13 @@
+{
+    "targetClass" : [
+        {
+            "className" : "com.detective.utils.EncryptUtil",
+            "methodName" : [
+                {
+                    "name": "encryptPassword",
+                    "flag": false
+                }
+            ]
+        }
+    ]
+}
