@@ -37,7 +37,7 @@ def save(downloadDir,file,data):
 
 def config(headers):
     import json
-    with open('./固定/config.json','rb') as fr:
+    with open('./config.json','rb') as fr:
         data = json.loads(fr.read())
         headers["User-Agent"] = data["ua"]
         headers["Cookie"] = data["cookie"]
