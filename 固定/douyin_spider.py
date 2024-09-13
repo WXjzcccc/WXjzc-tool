@@ -28,11 +28,19 @@ def _md5(data):
     return mymd5.hexdigest()
 
 def save(downloadDir,file,data):
-
     if os.path.exists(downloadDir) == False:
         os.makedirs(downloadDir)
     with open(os.path.join(downloadDir,file),'wb') as fw:
         fw.write(data)
+
+def save_stream(downloadDir,file,response):
+    # total_size = int(response.headers.get("content-length"))
+    block_size = 1024
+    if os.path.exists(downloadDir) == False:
+        os.makedirs(downloadDir)
+    with open(os.path.join(downloadDir,file),'wb') as fw:
+        for data in response.iter_content(chunk_size=block_size):
+            fw.write(data)
 
 
 def config(headers):
@@ -97,11 +105,11 @@ for url in urls:
                 if ident in done_data:
                     print(f'[yellow][+]《{desc}》已经处理过，跳过！')
                     continue
-                save_path = os.path.join(downloadDir,desc.strip()+str(aweme_id))
+                save_path = os.path.join(downloadDir,desc.strip().replace('\n','')+str(aweme_id))
                 save(save_path,'信息.txt',text.encode())
-                video_res = requests.get(video_url)
+                video_res = requests.get(video_url,stream=True)
                 cover_url = requests.get(cover_url)
-                save(save_path,'视频.mp4',video_res.content)
+                save_stream(save_path,'视频.mp4',video_res)
                 cover_ext = cover_url.headers.get("Content-Type").replace('image/','')
                 save(save_path,f'封面.{cover_ext}',cover_url.content)
                 print(f'[green][√]《{desc}》保存成功！')
