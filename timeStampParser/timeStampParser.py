@@ -24,9 +24,18 @@ def ios_timestamp_to_datetime(timestamp, origin_timezone='UTC', target_timezone=
 
 def default_timestamp_to_datetime(timestamp, origin_timezone='UTC', target_timezone='Asia/Shanghai'):
     try:
-        if len(str(timestamp)) == 13:
+        t_length = len(str(timestamp))
+        if t_length == 13:
+            # 毫秒
             dt = datetime.datetime.fromtimestamp(timestamp / 1000)
+        elif t_length == 16:
+            # 微秒
+            dt = datetime.datetime.fromtimestamp(timestamp / 1000000)
+        elif t_length == 19:
+            # 纳秒
+            dt = datetime.datetime.fromtimestamp(timestamp / 1000000000)
         else:
+            # 秒
             dt = datetime.datetime.fromtimestamp(timestamp)
         return timestamp_to_datetime(dt, origin_timezone, target_timezone)
     except:
@@ -37,6 +46,16 @@ def chrome_timestamp_to_datetime(timestamp, origin_timezone='UTC', target_timezo
     try:
         base_time = datetime.datetime(1601, 1, 1)
         delta = datetime.timedelta(microseconds=timestamp)
+        converted_time = base_time + delta
+        return timestamp_to_datetime(converted_time, origin_timezone, target_timezone)
+    except:
+        return '解析失败'
+
+
+def windows_file_time_to_datetime(timestamp, origin_timezone='UTC', target_timezone='Asia/Shanghai'):
+    try:
+        base_time = datetime.datetime(1601, 1, 1)
+        delta = datetime.timedelta(microseconds=timestamp / 10)
         converted_time = base_time + delta
         return timestamp_to_datetime(converted_time, origin_timezone, target_timezone)
     except:
@@ -110,7 +129,8 @@ class GUI:
             "UNIX": default_timestamp_to_datetime,
             "Chrome/Webkit": chrome_timestamp_to_datetime,
             "iOS数据库中": ios_timestamp_to_datetime,
-            "18位时间戳": nine_timestamp_to_datetime
+            "18位时间戳": nine_timestamp_to_datetime,
+            "WindowsFileTime": windows_file_time_to_datetime
         }
         self.timestamp_type_combobox = ttk.Combobox(self.root, values=list(self.methods.keys()), width=18)
         self.timestamp_type_combobox.current(0)
