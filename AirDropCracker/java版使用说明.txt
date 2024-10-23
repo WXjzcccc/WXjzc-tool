@@ -1,1 +1,2 @@
 解压后进到bin目录，打开app.bat即可
+java版的速度约为python版的7-8倍
