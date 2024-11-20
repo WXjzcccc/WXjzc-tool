@@ -23,4 +23,4 @@
     ]
 }
 ```
-运行想要注入的jar包，java -jar -javaagent:agent路径:config路径 jar包（和其他运行项目所需的参数）
+运行想要注入的jar包，java -jar -javaagent:agent路径=config路径 jar包（和其他运行项目所需的参数）
