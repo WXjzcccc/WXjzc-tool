@@ -1,7 +1,5 @@
 import binascii
-from tabnanny import check
 
-from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QPainter, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
@@ -11,6 +9,7 @@ from PySide6.QtWidgets import (
 from qt_material import apply_stylesheet
 import mmkv
 import os
+from mmkv_parser import MMKVParser #https://github.com/spak9/mmkv_visualizer
 
 
 def show_message(title :str, text: str, icon = QMessageBox.Icon.Warning):
@@ -26,31 +25,21 @@ class mmkvReader:
     def __init__(self, path: str):
         if os.path.exists(path):
             if os.path.isdir(path):
-                if self.check_path(path):
+                if check_path(path):
                     mmkv.MMKV.initializeMMKV(path)
                 self.path = path
                 self.file = False
                 self.fileName = ''
             else:
-                if self.check_path(os.path.dirname(path)):
+                if check_path(os.path.dirname(path)):
                     mmkv.MMKV.initializeMMKV(os.path.dirname(path))
+                mmkv.MMKV.initializeMMKV(os.path.dirname(path))
                 self.path = os.path.dirname(path)
                 self.file = True
                 self.fileName = os.path.basename(path)
         else:
             show_message('错误！','输入的路径不正确！')
 
-
-    def check_path(self,path):
-        files = os.listdir(path)
-        flag = False
-        for file in files:
-            if file.endswith('.crc'):
-                flag = True
-                break
-        if not flag:
-            show_message('错误！', '未找到crc文件，请重新选择路径！')
-        return flag
 
     def listObjects(self) -> list:
         '''获取目录下的文件'''
@@ -116,6 +105,108 @@ class mmkvReader:
             return self.getObjectAllValue(kv)
         return dic
 
+
+def check_path(path):
+    files = os.listdir(path)
+    flag = False
+    for file in files:
+        if file.endswith('.crc'):
+            flag = True
+            break
+    if not flag:
+        show_message('错误！', '未找到crc文件，请重新选择路径！')
+    return flag
+
+
+class mmkvParser_by_spak9:
+    def __init__(self,path: str):
+        if os.path.exists(path):
+            if os.path.isdir(path):
+                self.path = path
+                self.file = False
+                self.fileName = ''
+            else:
+                self.path = os.path.dirname(path)
+                self.file = True
+                self.fileName = os.path.basename(path)
+        else:
+            show_message('错误！','输入的路径不正确！')
+
+    def getParser(self,file_name:str,key):
+        with open(os.path.join(self.path,file_name),'rb') as f:
+            data = f.read()
+        with open(os.path.join(self.path,file_name+'.crc'),'rb') as f:
+            crc_data = f.read()
+        parser = MMKVParser(bytes.hex(data),bytes.hex(crc_data))
+        if key != '':
+            try:
+                parser.decrypt_and_reconstruct(key)
+            except:
+                pass
+        return parser
+
+    def getAllTypeValue(self, kv, data):
+        if data == b'WXjzc_None':
+            return {
+                'bool': '',
+                'int32': '',
+                'uint32': '',
+                'int64': '',
+                'uint64': '',
+                'float': '',
+                'bytes': '',
+                'string': '',
+            }
+        dic = {
+            'bool': kv.decode_as_bool(data) if kv.decode_as_bool(data) is not None else '',
+            'int32': kv.decode_as_int32(data) if kv.decode_as_int32(data) is not None else '',
+            'uint32': kv.decode_as_uint32(data) if kv.decode_as_uint32(data) is not None else '',
+            'int64': kv.decode_as_int64(data) if kv.decode_as_int64(data) is not None else '',
+            'uint64': kv.decode_as_uint64(data) if kv.decode_as_uint64(data) is not None else '',
+            'float': kv.decode_as_float(data) if kv.decode_as_float(data) is not None else '',
+            'bytes': binascii.hexlify(kv.decode_as_bytes(data) if kv.decode_as_bytes(
+                data) is not None else b'').decode()
+        }
+        try:
+            dic.update({'string': kv.decode_as_string(data) if kv.decode_as_string(
+                data) is not None else ''})
+        except:
+            pass
+        return dic
+
+    def get_max_length(self, _maps):
+        max_len = 0
+        for key,value in _maps.items():
+            max_len = max(max_len, len(value))
+        return max_len
+
+    def decode_one(self,file_name: str,key: str=''):
+        parser = self.getParser(file_name,key)
+        _maps = parser.decode_into_map()
+        max_len = self.get_max_length(_maps)
+        dic = {}
+        for i in range(max_len):
+            dic.update({f'{file_name}_{i}': {}})
+        for key,value in _maps.items():
+            for i in range(max_len):
+                if len(value) > i:
+                    dic[f'{file_name}_{i}'].update({key: self.getAllTypeValue(parser,value[i])})
+                else:
+                    dic[f'{file_name}_{i}'].update({key: self.getAllTypeValue(parser,b'WXjzc_None')})
+        return dic
+
+    def get_all(self,key=''):
+        if self.file:
+            return self.decode_one(self.fileName,key)
+        else:
+            files = os.listdir(self.path)
+            dic = {}
+            for file in files:
+                if not file.endswith('.crc'):
+                    dic.update(self.decode_one(file,key))
+        return dic
+
+
 class MainWindow(QMainWindow):
 
     def __init__(self):
@@ -168,6 +259,15 @@ class MainWindow(QMainWindow):
         self.radio_group.addButton(self.dir_radio)
         self.file_radio.toggled.connect(self.toggle_selector)
 
+        self.offical_radio = QRadioButton("官方引擎")
+        self.offical_radio.setChecked(True)
+        self.spak9_radio = QRadioButton("spak9引擎")
+        self.spak9_radio.setChecked(False)
+        self.engine_group = QButtonGroup()
+        self.engine_group.addButton(self.offical_radio)
+        self.engine_group.addButton(self.spak9_radio)
+
+
         # 密码输入框
         password_label = QLabel("密码:")
         self.password_input = QLineEdit()
@@ -181,9 +281,11 @@ class MainWindow(QMainWindow):
         left_layout.addWidget(self.file_button, 0, 1)
         left_layout.addWidget(self.dir_radio, 1, 0)
         left_layout.addWidget(self.dir_button, 1, 1)
-        left_layout.addWidget(password_label, 2, 0)
-        left_layout.addWidget(self.password_input, 2, 1)
-        left_layout.addWidget(confirm_button, 3, 0, 1, 2)
+        left_layout.addWidget(self.offical_radio, 2, 0)
+        left_layout.addWidget(self.spak9_radio, 2, 1)
+        left_layout.addWidget(password_label, 3, 0)
+        left_layout.addWidget(self.password_input, 3, 1)
+        left_layout.addWidget(confirm_button, 4, 0, 1, 2)
 
         left_widget.setLayout(left_layout)
 
@@ -205,6 +307,7 @@ Author: WXjzc
 1.选择目录时不支持密码，输出目录下所有mmkv的键值
 2.选择文件时支持密码，输出该文件的键值
 3.请确保mmkv的crc文件存在，如果选错目录，可能会对你的文本文件造成影响
+4.解析时可以选择引擎，官方引擎是从官方提供的方式编译得到的库，支持性比较好；spak9引擎是从https://github.com/spak9/mmkv_visualizer开源项目中拿到的文件，这个引擎可以解析出一些官方引擎无法拿到的数据（因为key-value会导致新加入的值覆盖已有的值，所以官方的只能解析出一条数据）
 """)
 
         right_layout.addWidget(self.description_text)
@@ -219,6 +322,7 @@ Author: WXjzc
             self.add_tab(key,value)
 
     def init_bottom_layout(self,data,name=''):
+        print(data)
         # Tab Widget
         if not name:
             for key,value in data.items():
@@ -238,6 +342,7 @@ Author: WXjzc
                 tab_layout.addWidget(table)
                 table.horizontalHeader().setStretchLastSection(True)
                 table.horizontalHeader().setDefaultSectionSize(120)
+                table.verticalHeader().setMaximumWidth(1000)
                 table.setMinimumWidth(600)
                 tab.setLayout(tab_layout)
                 self.tab_widget.addTab(tab, key)
@@ -284,17 +389,30 @@ Author: WXjzc
             self.dir_button.setEnabled(True)
 
     def confirm_action(self):
+
         self.tab_widget.clear()
         password = self.password_input.text()
-        if self.file_radio.isChecked():
-            reader = mmkvReader(self.file_path)
-            kv = reader.getObject(os.path.basename(self.file_path),password)
-            data = reader.getObjectAllValue(kv)
-            self.init_bottom_layout(data,os.path.basename(self.file_path))
-        elif self.dir_radio.isChecked():
-            reader = mmkvReader(self.dir_path)
-            kvs = reader.getDirAllValue()
-            self.init_bottom_layout(kvs)
+        if self.offical_radio.isChecked():
+            if self.file_radio.isChecked():
+                reader = mmkvReader(self.file_path)
+                kv = reader.getObject(os.path.basename(self.file_path),password)
+                data = reader.getObjectAllValue(kv)
+                self.init_bottom_layout(data,os.path.basename(self.file_path))
+            elif self.dir_radio.isChecked():
+                reader = mmkvReader(self.dir_path)
+                kvs = reader.getDirAllValue()
+                self.init_bottom_layout(kvs)
+        elif self.spak9_radio.isChecked():
+            if self.file_radio.isChecked():
+                parser = mmkvParser_by_spak9(self.file_path)
+                data = parser.get_all(password)
+                self.init_bottom_layout(data)
+            elif self.dir_radio.isChecked():
+                parser = mmkvParser_by_spak9(self.dir_path)
+                data = parser.get_all(password)
+                self.init_bottom_layout(data)
+
+
 
 
 if __name__ == "__main__":
