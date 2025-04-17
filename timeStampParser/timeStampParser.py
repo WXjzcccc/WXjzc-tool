@@ -69,6 +69,14 @@ def nine_timestamp_to_datetime(timestamp, origin_timezone='UTC', target_timezone
     except:
         return '解析失败'
 
+def apple_timestamp_to_datetime(timestamp, origin_timezone='UTC', target_timezone='Asia/Shanghai'):
+    try:
+        nine = int(format(timestamp, '.20f')[:9]) + 978307200
+        dt = datetime.datetime.fromtimestamp(nine)
+        return timestamp_to_datetime(dt, origin_timezone, target_timezone)
+    except:
+        return '解析失败'
+
 class ToolTip(object):
 
     def __init__(self, widget):
@@ -128,7 +136,8 @@ class GUI:
             "Chrome/Webkit": chrome_timestamp_to_datetime,
             "iOS数据库中": ios_timestamp_to_datetime,
             "18位时间戳": nine_timestamp_to_datetime,
-            "WindowsFileTime": windows_file_time_to_datetime
+            "WindowsFileTime": windows_file_time_to_datetime,
+            "Apple Absolute Time": apple_timestamp_to_datetime,
         }
         self.timestamp_type_combobox = ttk.Combobox(self.root, values=list(self.methods.keys()), width=18)
         self.timestamp_type_combobox.current(0)
