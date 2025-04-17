@@ -64,12 +64,10 @@ def windows_file_time_to_datetime(timestamp, origin_timezone='UTC', target_timez
 
 def nine_timestamp_to_datetime(timestamp, origin_timezone='UTC', target_timezone='Asia/Shanghai'):
     try:
-        nine = int(format(timestamp, '.20f')[:9]) + 978307200
-        dt = datetime.datetime.fromtimestamp(nine)
-        return timestamp_to_datetime(dt, origin_timezone, target_timezone)
+        nine = int(timestamp) - 621355968000000000
+        return default_timestamp_to_datetime(nine // 10000, origin_timezone, target_timezone)
     except:
         return '解析失败'
-
 
 class ToolTip(object):
 
