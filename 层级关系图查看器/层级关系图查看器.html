@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>层级关系图查看器</title>
+    <script src="./d3.v7.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1800px; margin: 0 auto; background: white;
+            border-radius: 15px; box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden; display: grid;
+            grid-template-columns: 1fr 350px;
+            grid-template-rows: auto auto 1fr;
+            min-height: calc(100vh - 40px);
+        }
+        .header {
+            grid-column: 1 / -1; background: linear-gradient(135deg, #2c3e50, #3498db);
+            color: white; padding: 30px; text-align: center;
+        }
+        .controls {
+            grid-column: 1 / -1; padding: 30px; background: #f8f9fa;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .file-input-button, .search-button {
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white; padding: 12px 25px; border-radius: 8px;
+            cursor: pointer; border: none; font-size: 16px;
+            transition: all 0.3s ease; margin-right: 10px;
+        }
+        .search-button { background: linear-gradient(135deg, #3498db, #2980b9); }
+        .file-options {
+            margin: 15px 0; padding: 15px; background: #e9ecef;
+            border-radius: 8px; display: none;
+        }
+        .search-input, select {
+            padding: 12px 15px; border: 2px solid #ddd;
+            border-radius: 8px; font-size: 16px; margin-right: 10px;
+        }
+        .tree-container {
+            padding: 20px; background: white; overflow: hidden; position: relative;
+        }
+        #tree-svg { width: 100%; height: 100%; border: 1px solid #e9ecef; border-radius: 10px; }
+        .sidebar {
+            background: #f8f9fa; border-left: 2px solid #e9ecef;
+            padding: 20px; overflow-y: auto; display: flex;
+            flex-direction: column; gap: 20px;
+        }
+        .detail-panel {
+            background: white; border-radius: 10px; padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .detail-panel h3 {
+            color: #2c3e50; margin-bottom: 15px; font-size: 18px;
+            border-bottom: 2px solid #3498db; padding-bottom: 8px;
+        }
+        #nodeDetailContent {
+            max-height: 400px;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        #nodeDetailContent::-webkit-scrollbar {
+            width: 6px;
+        }
+        #nodeDetailContent::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 3px;
+        }
+        #nodeDetailContent::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 3px;
+        }
+        #nodeDetailContent::-webkit-scrollbar-thumb:hover {
+            background: #a8a8a8;
+        }
+        .info-item {
+            background: #f8f9fa; padding: 8px 12px; border-radius: 6px;
+            border-left: 3px solid #3498db; margin-bottom: 8px;
+        }
+        .info-label { font-size: 12px; color: #6c757d; margin-bottom: 2px; }
+        .info-value { 
+            font-weight: bold; color: #2c3e50;
+        }
+        .node { cursor: pointer; transition: all 0.3s ease; }
+        .node circle {
+            fill: #fff; stroke: #3498db; stroke-width: 2px; transition: all 0.3s ease;
+        }
+        .node.selected circle { fill: #3498db; stroke: #2980b9; stroke-width: 3px; }
+        .node:hover circle { fill: #e8f4fd; stroke: #2980b9; stroke-width: 3px; }
+        .node text { font: 12px sans-serif; fill: #2c3e50; text-anchor: middle; pointer-events: none; }
+        .link { fill: none; stroke: #bdc3c7; stroke-width: 1.5px; }
+        .root-indicator { fill: #e74c3c; stroke: #c0392b; }
+        .loading, .no-data { text-align: center; padding: 60px; color: #6c757d; font-size: 18px; }
+        .tree-controls {
+            position: absolute; top: 10px; right: 10px; display: flex; gap: 5px;
+        }
+        .tree-control-btn {
+            background: #3498db; color: white; border: none;
+            padding: 6px 10px; border-radius: 5px; cursor: pointer; font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌳 层级关系图查看器</h1>
+        </div>
+        
+        <div class="controls">
+            <input type="file" id="fileInput" accept=".txt,.csv" style="display: none;" />
+            <label for="fileInput" class="file-input-button">📂 选择数据文件</label>
+            
+            <div class="file-options" id="fileOptions">
+                <select id="separatorSelect">
+                    <option value="\t">制表符 (Tab)</option>
+                    <option value=",">逗号 (,)</option>
+                    <option value=";">分号 (;)</option>
+                    <option value="|">竖线 (|)</option>
+                </select>
+                <label><input type="checkbox" id="hasHeaderCheck" checked /> 文件包含表头</label>
+                <button id="parseFileButton" class="search-button">📋 解析文件</button>
+            </div>
+            <p>&nbsp;</p>
+            <div>
+                <input type="text" id="searchInput" class="search-input" placeholder="输入用户ID或其他信息搜索..." />
+                <button id="searchButton" class="search-button">🔍 搜索</button>
+                <button id="resetButton" class="search-button" style="background: linear-gradient(135deg, #dc3545, #c82333);">🔄 重置视图</button>
+                <select id="rootSelector" style="display: none;">
+                    <option value="">选择根节点</option>
+                </select>
+                <div id="nodeInfoSelector" style="display: none;">
+                    <label style="font-size: 14px; margin-right: 10px;">显示字段：</label>
+                    <button id="selectAllFields" class="tree-control-btn" style="margin-right: 5px;">全选</button>
+                    <button id="selectNoneFields" class="tree-control-btn" style="margin-right: 10px;">清空</button>
+                    <div id="fieldCheckboxes" style="display: inline-block;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tree-container">
+            <div class="tree-controls">
+                <button class="tree-control-btn" onclick="treeViewer.zoomIn()">放大</button>
+                <button class="tree-control-btn" onclick="treeViewer.zoomOut()">缩小</button>
+                <button class="tree-control-btn" onclick="treeViewer.fitToScreen()">适应</button>
+                <button class="tree-control-btn" onclick="treeViewer.expandAll()">展开</button>
+                <button class="tree-control-btn" onclick="treeViewer.collapseAll()">收起</button>
+            </div>
+            <svg id="tree-svg"></svg>
+            <div id="loadingIndicator" class="no-data">
+                请选择一个数据文件开始查看层级关系图<br>
+                <small>支持多种分隔符格式：制表符、逗号、分号、竖线</small>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="detail-panel">
+                <h3>👤 节点详情</h3>
+                <div id="nodeDetailContent">
+                    <p style="color: #6c757d; text-align: center; padding: 20px;">
+                        点击树状图中的节点查看详细信息
+                    </p>
+                </div>
+            </div>
+
+            <div class="detail-panel">
+                <h3>📊 图表统计</h3>
+                <div id="statsContent">
+                    <div class="info-item">
+                        <div class="info-label">总节点数</div>
+                        <div class="info-value" id="totalNodesCount">0</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">根节点数</div>
+                        <div class="info-value" id="rootNodesCount">0</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">最大深度</div>
+                        <div class="info-value" id="maxDepthValue">0</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">当前视图</div>
+                        <div class="info-value" id="currentRootValue">无</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        class D3TreeViewer {
+            constructor() {
+                this.data = new Map();
+                this.children = new Map();
+                this.rootNodes = [];
+                this.currentRoot = null;
+                this.selectedNode = null;
+                this.columnHeaders = [];
+                this.fileContent = null;
+                this.searchIndex = new Map();
+                this.expandedNodes = new Set();
+                this.selectedFields = []; // 选中的字段列表
+
+                // D3相关
+                this.svg = null;
+                this.g = null;
+                this.tree = null;
+                this.root = null;
+                this.zoom = null;
+                this.width = 1200;
+                this.height = 800;
+                
+                this.initializeEventListeners();
+                this.initializeD3();
+            }
+
+            initializeEventListeners() {
+                document.getElementById('fileInput').addEventListener('change', (e) => {
+                    this.loadFileContent(e.target.files[0]);
+                });
+                document.getElementById('parseFileButton').addEventListener('click', () => {
+                    this.parseFileWithOptions();
+                });
+                document.getElementById('searchButton').addEventListener('click', () => {
+                    this.searchNode();
+                });
+                document.getElementById('resetButton').addEventListener('click', () => {
+                    this.resetView();
+                });
+                document.getElementById('rootSelector').addEventListener('change', (e) => {
+                    this.switchRoot(e.target.value);
+                });
+                document.getElementById('selectAllFields').addEventListener('click', () => {
+                    this.selectAllFields();
+                });
+                document.getElementById('selectNoneFields').addEventListener('click', () => {
+                    this.selectNoneFields();
+                });
+            }
+
+            initializeD3() {
+                this.svg = d3.select("#tree-svg");
+                this.zoom = d3.zoom()
+                    .scaleExtent([0.1, 4])
+                    .on("zoom", (event) => {
+                        this.g.attr("transform", event.transform);
+                    });
+                this.svg.call(this.zoom);
+                this.g = this.svg.append("g");
+                this.tree = d3.tree().size([this.width - 200, this.height - 100]);
+            }
+
+            async loadFileContent(file) {
+                if (!file) return;
+                document.getElementById('loadingIndicator').innerHTML = '<div class="loading">正在读取文件...</div>';
+                try {
+                    this.fileContent = await file.text();
+                    this.showFileOptions();
+                    document.getElementById('loadingIndicator').innerHTML = '<div class="no-data">请选择分隔符和表头选项，然后点击"解析文件"</div>';
+                } catch (error) {
+                    document.getElementById('loadingIndicator').innerHTML = `<div class="no-data">读取文件失败: ${error.message}</div>`;
+                }
+            }
+
+            showFileOptions() {
+                document.getElementById('fileOptions').style.display = 'block';
+                this.autoDetectSeparator();
+            }
+
+            autoDetectSeparator() {
+                if (!this.fileContent) return;
+                const firstLine = this.fileContent.split('\n')[0];
+                const separators = {
+                    '\t': (firstLine.match(/\t/g) || []).length,
+                    ',': (firstLine.match(/,/g) || []).length,
+                    ';': (firstLine.match(/;/g) || []).length,
+                    '|': (firstLine.match(/\|/g) || []).length
+                };
+                let maxCount = 0, bestSeparator = '\t';
+                for (const [sep, count] of Object.entries(separators)) {
+                    if (count > maxCount) { maxCount = count; bestSeparator = sep; }
+                }
+                document.getElementById('separatorSelect').value = bestSeparator;
+            }
+
+            parseFileWithOptions() {
+                if (!this.fileContent) { alert('请先选择文件'); return; }
+                document.getElementById('loadingIndicator').innerHTML = '<div class="loading">正在解析数据...</div>';
+                try {
+                    const separator = document.getElementById('separatorSelect').value;
+                    const hasHeader = document.getElementById('hasHeaderCheck').checked;
+                    this.parseData(this.fileContent, separator, hasHeader);
+                    this.buildSearchIndex();
+                    this.buildTree();
+                    this.setupRootSelector();
+                    this.setupNodeInfoSelector();
+                    this.renderTree();
+                    this.updateStats();
+                    document.getElementById('fileOptions').style.display = 'none';
+                    document.getElementById('loadingIndicator').style.display = 'none';
+                } catch (error) {
+                    document.getElementById('loadingIndicator').innerHTML = `<div class="no-data">解析文件失败: ${error.message}</div>`;
+                }
+            }
+
+            parseData(text, separator, hasHeader) {
+                const lines = text.trim().split('\n');
+                this.data.clear(); this.children.clear(); this.columnHeaders = [];
+                let startLine = 0;
+                if (hasHeader && lines.length > 0) {
+                    this.columnHeaders = lines[0].split(separator).map(h => h.trim());
+                    startLine = 1;
+                } else if (lines.length > 0) {
+                    const firstRowCols = lines[0].split(separator);
+                    this.columnHeaders = ['ID', '上级ID'];
+                    for (let i = 2; i < firstRowCols.length; i++) {
+                        this.columnHeaders.push(`字段${i - 1}`);
+                    }
+                }
+                for (let i = startLine; i < lines.length; i++) {
+                    const line = lines[i].trim();
+                    if (!line) continue;
+                    const parts = line.split(separator).map(s => s.trim());
+                    const id = parts[0], parentId = parts[1] || null;
+                    if (!id) continue;
+                    const nodeData = { id, parentId, level: 0, childCount: 0, directChildren: 0, columns: {} };
+                    for (let j = 0; j < Math.min(parts.length, this.columnHeaders.length); j++) {
+                        nodeData.columns[this.columnHeaders[j]] = parts[j] || '';
+                    }
+                    this.data.set(id, nodeData);
+                }
+                this.rootNodes = [];
+                for (const [id, nodeData] of this.data) {
+                    const parentId = nodeData.parentId;
+                    if (parentId && this.data.has(parentId)) {
+                        if (!this.children.has(parentId)) this.children.set(parentId, []);
+                        this.children.get(parentId).push(id);
+                    } else {
+                        this.rootNodes.push(id);
+                    }
+                }
+                this.calculateLevels();
+            }
+
+            calculateLevels() {
+                const visited = new Set();
+                const dfs = (nodeId, level) => {
+                    if (visited.has(nodeId) || !this.data.has(nodeId)) return 0;
+                    visited.add(nodeId);
+                    const nodeData = this.data.get(nodeId);
+                    nodeData.level = level;
+                    const children = this.children.get(nodeId) || [];
+                    nodeData.directChildren = children.length;
+                    let totalChildren = 0;
+                    for (const childId of children) {
+                        totalChildren += 1 + dfs(childId, level + 1);
+                    }
+                    nodeData.childCount = totalChildren;
+                    return totalChildren;
+                };
+                for (const rootId of this.rootNodes) { dfs(rootId, 1); }
+            }
+
+            buildSearchIndex() {
+                this.searchIndex.clear();
+                for (const [id, nodeData] of this.data) {
+                    this.searchIndex.set(id.toLowerCase(), id);
+                    for (const [columnName, value] of Object.entries(nodeData.columns)) {
+                        if (value && typeof value === 'string' && value.trim()) {
+                            this.searchIndex.set(value.toLowerCase(), id);
+                            if (columnName.includes('手机') && value.length >= 4) {
+                                this.searchIndex.set(value.slice(-4), id);
+                            }
+                        }
+                    }
+                }
+            }
+
+            buildTree() {
+                for (const [parentId, children] of this.children) {
+                    children.sort((a, b) => {
+                        const numA = parseInt(a), numB = parseInt(b);
+                        if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+                        return a.localeCompare(b);
+                    });
+                }
+                if (this.rootNodes.length > 0) {
+                    this.currentRoot = this.rootNodes[0];
+                    // 默认展开根节点
+                    this.expandedNodes.add(this.currentRoot);
+                }
+            }
+
+            setupRootSelector() {
+                const selector = document.getElementById('rootSelector');
+                selector.innerHTML = '<option value="">选择根节点</option>';
+                if (this.rootNodes.length > 1) {
+                    selector.style.display = 'inline-block';
+                    for (const rootId of this.rootNodes) {
+                        const nodeData = this.data.get(rootId);
+                        const displayName = this.getDisplayName(nodeData);
+                        const option = document.createElement('option');
+                        option.value = rootId;
+                        option.textContent = `${rootId} - ${displayName}`;
+                        selector.appendChild(option);
+                    }
+                    selector.value = this.currentRoot;
+                } else {
+                    selector.style.display = 'none';
+                }
+            }
+            
+            setupNodeInfoSelector() {
+                const container = document.getElementById('nodeInfoSelector');
+                const checkboxContainer = document.getElementById('fieldCheckboxes');
+                
+                // 清空现有内容
+                checkboxContainer.innerHTML = '';
+                this.selectedFields = [];
+                
+                // 如果有表头，且表头长度大于2（除了ID和上级ID）
+                if (this.columnHeaders.length > 2) {
+                    for (let i = 2; i < this.columnHeaders.length; i++) {
+                        const header = this.columnHeaders[i];
+                        if (header && header.trim()) {
+                            const checkboxWrapper = document.createElement('label');
+                            checkboxWrapper.style.marginRight = '15px';
+                            checkboxWrapper.style.cursor = 'pointer';
+                            checkboxWrapper.style.fontSize = '13px';
+                            checkboxWrapper.style.whiteSpace = 'nowrap';
+                            
+                            const checkbox = document.createElement('input');
+                            checkbox.type = 'checkbox';
+                            checkbox.value = header;
+                            checkbox.style.marginRight = '5px';
+                            
+                            // 默认选中第一个字段
+                            if (i === 2) {
+                                checkbox.checked = true;
+                                this.selectedFields.push(header);
+                            }
+                            
+                            checkbox.addEventListener('change', (e) => {
+                                this.onFieldSelectionChange(e.target.value, e.target.checked);
+                            });
+                            
+                            checkboxWrapper.appendChild(checkbox);
+                            checkboxWrapper.appendChild(document.createTextNode(header));
+                            checkboxContainer.appendChild(checkboxWrapper);
+                        }
+                    }
+                    container.style.display = 'block';
+                } else {
+                    // 没有表头或表头不够，隐藏选择器
+                    container.style.display = 'none';
+                }
+            }
+            
+            onFieldSelectionChange(fieldName, isSelected) {
+                if (isSelected) {
+                    if (!this.selectedFields.includes(fieldName)) {
+                        this.selectedFields.push(fieldName);
+                    }
+                } else {
+                    const index = this.selectedFields.indexOf(fieldName);
+                    if (index > -1) {
+                        this.selectedFields.splice(index, 1);
+                    }
+                }
+                
+                if (this.currentRoot) {
+                    this.renderTree();
+                }
+            }
+            
+            selectAllFields() {
+                const checkboxes = document.querySelectorAll('#fieldCheckboxes input[type="checkbox"]');
+                this.selectedFields = [];
+                
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = true;
+                    this.selectedFields.push(checkbox.value);
+                });
+                
+                if (this.currentRoot) {
+                    this.renderTree();
+                }
+            }
+            
+            selectNoneFields() {
+                const checkboxes = document.querySelectorAll('#fieldCheckboxes input[type="checkbox"]');
+                this.selectedFields = [];
+                
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = false;
+                });
+                
+                if (this.currentRoot) {
+                    this.renderTree();
+                }
+            }
+
+            getDisplayName(nodeData) {
+                const nicknameFields = ['昵称', '姓名', 'name', 'nickname'];
+                for (const field of nicknameFields) {
+                    if (nodeData.columns[field]) return nodeData.columns[field];
+                }
+                return `用户${nodeData.id}`;
+            }
+
+            switchRoot(rootId) {
+                if (rootId && this.data.has(rootId)) {
+                    this.currentRoot = rootId;
+                    // 切换根节点时重置展开状态，但默认展开新的根节点
+                    this.expandedNodes.clear();
+                    this.expandedNodes.add(rootId);
+                    this.renderTree();
+                }
+            }
+
+            renderTree(animateFromNode = null) {
+                if (!this.currentRoot) return;
+                
+                const hierarchyData = this.buildHierarchyData(this.currentRoot);
+                const newRoot = d3.hierarchy(hierarchyData);
+                
+                // 动态计算树的尺寸（垂直布局）
+                const nodeCount = newRoot.descendants().length;
+                const avgFieldCount = this.selectedFields.length || 1;
+                const treeWidth = Math.max(800, nodeCount * (120 + avgFieldCount * 20));
+                this.tree.size([treeWidth, this.height - 100]);
+                
+                this.tree(newRoot);
+                
+                // 如果是局部更新，使用过渡动画
+                const transition = d3.transition().duration(animateFromNode ? 750 : 0);
+                
+                // 更新连接线
+                const linkSelection = this.g.selectAll(".link")
+                    .data(newRoot.links(), d => d.target.data.id);
+                
+                linkSelection.exit()
+                    .transition(transition)
+                    .style("opacity", 0)
+                    .remove();
+                
+                linkSelection.enter().append("path")
+                    .attr("class", "link")
+                    .style("opacity", 0)
+                    .transition(transition)
+                    .style("opacity", 1)
+                    .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
+                
+                linkSelection.transition(transition)
+                    .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
+                
+                // 更新节点
+                const nodeSelection = this.g.selectAll(".node")
+                    .data(newRoot.descendants(), d => d.data.id);
+                
+                // 移除不再存在的节点
+                nodeSelection.exit()
+                    .transition(transition)
+                    .style("opacity", 0)
+                    .remove();
+                
+                // 添加新节点
+                const nodeEnter = nodeSelection.enter().append("g")
+                    .attr("class", "node")
+                    .attr("data-node-id", d => d.data.id)
+                    .style("cursor", "pointer")
+                    .style("opacity", 0)
+                    .attr("transform", d => {
+                        // 如果有动画起始节点，从该节点位置开始
+                        if (animateFromNode) {
+                            const sourceNode = newRoot.descendants().find(n => n.data.id === animateFromNode);
+                            if (sourceNode) {
+                                return `translate(${sourceNode.x},${sourceNode.y})`;
+                            }
+                        }
+                        return `translate(${d.x},${d.y})`;
+                    })
+                    .on("click", (event, d) => this.handleNodeClick(event, d))
+                    .on("contextmenu", (event, d) => {
+                        event.preventDefault();
+                        this.selectNode(d.data.id);
+                    });
+                
+                // 为新节点添加圆圈
+                this.addNodeCircles(nodeEnter);
+                
+                // 为新节点添加文本
+                this.addNodeTexts(nodeEnter);
+                
+                // 更新所有节点位置
+                const nodeUpdate = nodeEnter.merge(nodeSelection);
+                
+                nodeUpdate.transition(transition)
+                    .style("opacity", 1)
+                    .attr("transform", d => `translate(${d.x},${d.y})`);
+                
+                // 更新节点样式
+                this.updateNodeStyles(nodeUpdate);
+                
+                this.root = newRoot;
+                
+                if (!animateFromNode) {
+                    this.fitToScreen();
+                }
+                this.updateStats();
+            }
+            
+            addNodeCircles(nodeSelection) {
+                nodeSelection.append("circle")
+                    .attr("r", d => {
+                        if (d.data.id === this.currentRoot) return 12;
+                        const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                        // 根据显示字段数量调整圆圈大小
+                        const baseSize = hasChildren ? 10 : 8;
+                        const extraSize = Math.min(this.selectedFields.length * 2, 6);
+                        return baseSize + extraSize;
+                    });
+            }
+            
+            addNodeTexts(nodeSelection) {
+                // 添加节点标题 - 上方显示ID
+                nodeSelection.append("text")
+                    .attr("class", "node-title")
+                    .attr("dy", "-1.2em")
+                    .attr("x", 0)
+                    .style("text-anchor", "middle")
+                    .style("font-size", "12px")
+                    .style("font-weight", "bold")
+                    .style("pointer-events", "none")
+                    .style("fill", "#2c3e50")
+                    .text(d => d.data.id);
+
+                // 添加多行数据显示
+                nodeSelection.each((d, i, nodes) => {
+                    const nodeElement = d3.select(nodes[i]);
+                    const nodeData = this.data.get(d.data.id);
+                    
+                    // 为每个选中的字段添加一行文本
+                    this.selectedFields.forEach((fieldName, index) => {
+                        const value = nodeData.columns[fieldName];
+                        if (value && value.toString().trim()) {
+                            const text = value.toString();
+                            const displayText = text.length > 10 ? text.substring(0, 10) + '...' : text;
+                            const fullDisplayText = `${fieldName}: ${displayText}`;
+                            
+                            const textElement = nodeElement.append("text")
+                                .attr("class", "node-data")
+                                .attr("dy", `${2.5 + index * 1.0}em`)
+                                .attr("x", 0)
+                                .style("text-anchor", "middle")
+                                .style("font-size", "10px")
+                                .style("pointer-events", "none")
+                                .style("fill", "#7f8c8d")
+                                .text(fullDisplayText);
+                            
+                            // 添加悬停提示显示完整内容
+                            textElement.append("title").text(`${fieldName}: ${text}`);
+                        }
+                    });
+                });
+
+                // 添加状态指示器 - 在数据下方显示展开状态
+                nodeSelection.append("text")
+                    .attr("class", "node-status")
+                    .attr("dy", d => {
+                        // 根据显示的字段数量动态调整位置
+                        const offset = this.selectedFields.length > 0 ? this.selectedFields.length * 1.0 + 0.8 : 1.5;
+                        return `${offset}em`;
+                    })
+                    .attr("x", 0)
+                    .style("text-anchor", "middle")
+                    .style("font-size", "9px")
+                    .style("pointer-events", "none")
+                    .style("fill", "#95a5a6")
+                    .text(d => {
+                        const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                        // if (hasChildren) {
+                        //     const childCount = this.children.get(d.data.id).length;
+                        //     const isExpanded = this.expandedNodes.has(d.data.id);
+                        //     const status = isExpanded ? '展开' : '收起';
+                        //     return `${status}(${childCount})`;
+                        // }
+                        return '';
+                    });
+            }
+            
+            updateNodeStyles(nodeSelection) {
+                // 更新圆圈样式
+                nodeSelection.select("circle")
+                    .attr("class", d => d.data.id === this.currentRoot ? "root-indicator" : "")
+                    .style("fill", d => {
+                        if (d.data.id === this.currentRoot) {
+                            // 根节点的颜色也根据展开状态变化
+                            const isExpanded = this.expandedNodes.has(d.data.id);
+                            const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                            if (hasChildren && !isExpanded) return "#e67e22"; // 橙色表示根节点收起
+                            return "#e74c3c"; // 红色表示根节点展开或无子节点
+                        }
+                        const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                        const isExpanded = this.expandedNodes.has(d.data.id);
+                        if (hasChildren && !isExpanded) return "#f39c12";
+                        if (hasChildren && isExpanded) return "#27ae60";
+                        return "#3498db";
+                    })
+                    .style("stroke", d => {
+                        if (d.data.id === this.selectedNode) return "#e74c3c";
+                        const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                        return hasChildren ? "#34495e" : "#7f8c8d";
+                    })
+                    .style("stroke-width", d => {
+                        if (d.data.id === this.selectedNode) return 3;
+                        return d.data.id === this.currentRoot ? 3 : 2;
+                    });
+                
+                // 更新状态文本位置
+                nodeSelection.select(".node-status")
+                    .attr("dy", d => {
+                        const offset = this.selectedFields.length > 0 ? this.selectedFields.length * 1.0 + 0.8 : 1.5;
+                        return `${offset}em`;
+                    })
+                    .text(d => {
+                        const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                        // if (hasChildren) {
+                        //     const childCount = this.children.get(d.data.id).length;
+                        //     const isExpanded = this.expandedNodes.has(d.data.id);
+                        //     const status = isExpanded ? '展开' : '收起';
+                        //     return `${status}(${childCount})`;
+                        // }
+                        return '';
+                    });
+            }
+
+            buildHierarchyData(nodeId) {
+                const nodeData = this.data.get(nodeId);
+                if (!nodeData) return null;
+                
+                const children = this.children.get(nodeId) || [];
+                const result = { id: nodeId, data: nodeData };
+                
+                // 只有当节点被展开时才加载子节点（包括根节点）
+                if (children.length > 0 && this.expandedNodes.has(nodeId)) {
+                    result.children = children.map(childId => this.buildHierarchyData(childId)).filter(child => child !== null);
+                }
+                
+                return result;
+            }
+
+            selectNode(nodeId) {
+                this.selectedNode = nodeId;
+                // 更新所有节点的选中状态
+                this.g.selectAll(".node circle")
+                    .style("stroke-width", d => {
+                        if (d.data.id === nodeId) return 3;
+                        return d.data.id === this.currentRoot ? 3 : 2;
+                    })
+                    .style("stroke", d => {
+                        if (d.data.id === nodeId) return "#e74c3c";
+                        const hasChildren = this.children.has(d.data.id) && this.children.get(d.data.id).length > 0;
+                        return hasChildren ? "#34495e" : "#7f8c8d";
+                    });
+                
+                this.updateNodeDetail(nodeId);
+            }
+            
+            handleNodeClick(event, d) {
+                const nodeId = d.data.id;
+                const hasChildren = this.children.has(nodeId) && this.children.get(nodeId).length > 0;
+                
+                // 始终选中节点并显示详情
+                this.selectNode(nodeId);
+                
+                // 如果有子节点，同时切换展开/收缩状态
+                if (hasChildren) {
+                    if (this.expandedNodes.has(nodeId)) {
+                        this.expandedNodes.delete(nodeId);
+                    } else {
+                        this.expandedNodes.add(nodeId);
+                    }
+                    // 使用局部动画更新，从当前节点开始
+                    this.renderTree(nodeId);
+                } else {
+                    // 如果没有子节点，只是点击选中，将视图移动到该节点
+                    this.centerOnNode(nodeId);
+                }
+            }
+            
+            toggleNode(nodeId) {
+                const hasChildren = this.children.has(nodeId) && this.children.get(nodeId).length > 0;
+                if (!hasChildren) return;
+                
+                if (this.expandedNodes.has(nodeId)) {
+                    this.expandedNodes.delete(nodeId);
+                } else {
+                    this.expandedNodes.add(nodeId);
+                }
+                
+                this.renderTree();
+            }
+
+
+            updateNodeDetail(nodeId) {
+                const nodeData = this.data.get(nodeId);
+                if (!nodeData) return;
+                
+                const container = document.getElementById('nodeDetailContent');
+                let html = '';
+                
+                // 显示基本信息
+                html += `<div class="info-item"><div class="info-label">节点ID</div><div class="info-value">${nodeId}</div></div>`;
+                
+                // 显示所有列数据
+                for (const [columnName, value] of Object.entries(nodeData.columns)) {
+                    if (value && value.toString().trim() && columnName !== 'ID' && columnName !== '上级ID') {
+                        const displayValue = value.toString();
+                        html += `<div class="info-item"><div class="info-label">${columnName}</div><div class="info-value">${displayValue}</div></div>`;
+                    }
+                }
+                
+                // 显示父节点信息
+                if (nodeData.parentId) {
+                    html += `<div class="info-item"><div class="info-label">上级节点</div><div class="info-value">${nodeData.parentId}</div></div>`;
+                } else {
+                    html += `<div class="info-item"><div class="info-label">节点类型</div><div class="info-value">根节点</div></div>`;
+                }
+                
+                container.innerHTML = html;
+            }
+
+            searchNode() {
+                const searchTerm = document.getElementById('searchInput').value.trim().toLowerCase();
+                if (!searchTerm) { alert('请输入要搜索的内容'); return; }
+                const foundId = this.searchIndex.get(searchTerm);
+                if (foundId) { this.highlightNode(foundId); return; }
+                const matches = [];
+                for (const [key, id] of this.searchIndex) {
+                    if (key.includes(searchTerm)) matches.push(id);
+                }
+                if (matches.length === 0) {
+                    alert(`未找到包含 "${searchTerm}" 的节点`);
+                } else if (matches.length === 1) {
+                    this.highlightNode(matches[0]);
+                } else {
+                    const choice = prompt(`找到 ${matches.length} 个匹配结果:\n${matches.slice(0, 10).join(', ')}\n\n请输入要查看的ID:`);
+                    if (choice && this.data.has(choice)) this.highlightNode(choice);
+                }
+            }
+
+            highlightNode(nodeId) {
+                const nodeData = this.data.get(nodeId);
+                if (!nodeData) return;
+                
+                const rootPath = this.getPathToRoot(nodeId);
+                if (rootPath.length > 0) {
+                    const nodeRoot = rootPath[0];
+                    if (nodeRoot !== this.currentRoot) {
+                        this.currentRoot = nodeRoot;
+                        document.getElementById('rootSelector').value = nodeRoot;
+                        this.expandedNodes.clear();
+                    }
+                    
+                    // 展开到目标节点的路径
+                    for (let i = 0; i < rootPath.length - 1; i++) {
+                        this.expandedNodes.add(rootPath[i]);
+                    }
+                    
+                    this.renderTree();
+                }
+                
+                // 选中目标节点
+                this.selectNode(nodeId);
+                
+                // 自动将视图移动到目标节点
+                this.centerOnNode(nodeId);
+            }
+
+            getPathToRoot(nodeId) {
+                const path = [];
+                let current = nodeId;
+                while (current && this.data.has(current)) {
+                    path.push(current);
+                    current = this.data.get(current).parentId;
+                }
+                return path.reverse();
+            }
+
+            updateStats() {
+                document.getElementById('totalNodesCount').textContent = this.data.size;
+                document.getElementById('rootNodesCount').textContent = this.rootNodes.length;
+                let maxDepth = 0;
+                for (const nodeData of this.data.values()) {
+                    maxDepth = Math.max(maxDepth, nodeData.level);
+                }
+                document.getElementById('maxDepthValue').textContent = maxDepth;
+                const currentRootData = this.data.get(this.currentRoot);
+                document.getElementById('currentRootValue').textContent = currentRootData ? 
+                    `${this.currentRoot}(${this.getDisplayName(currentRootData)})` : '无';
+            }
+
+            resetView() {
+                // 清空搜索框
+                document.getElementById('searchInput').value = '';
+                
+                // 如果有数据，重新渲染整个视图
+                if (this.fileContent && this.data.size > 0) {
+                    // 重新解析并渲染数据
+                    this.parseFileWithOptions();
+                } else if (this.rootNodes.length > 0) {
+                    // 如果没有文件内容但有数据，重置到初始状态
+                    this.currentRoot = this.rootNodes[0];
+                    document.getElementById('rootSelector').value = this.currentRoot;
+                    // 重置选中节点
+                    this.selectedNode = null;
+                    // 重置展开状态，但默认展开根节点
+                    this.expandedNodes.clear();
+                    this.expandedNodes.add(this.currentRoot);
+                    // 重新渲染树
+                    this.renderTree();
+                    // 适应屏幕
+                    setTimeout(() => this.fitToScreen(), 100);
+                }
+            }
+
+            zoomIn() { this.svg.transition().call(this.zoom.scaleBy, 1.5); }
+            zoomOut() { this.svg.transition().call(this.zoom.scaleBy, 1 / 1.5); }
+            
+            centerOnNode(nodeId) {
+                // 在D3树数据结构中找到目标节点
+                if (!this.root) return;
+                
+                const targetNode = this.root.descendants().find(d => d.data.id === nodeId);
+                if (!targetNode) {
+                    // 如果找不到节点，延迟一点再试（可能正在动画中）
+                    setTimeout(() => this.centerOnNode(nodeId), 200);
+                    return;
+                }
+                
+                // 使用D3树布局中节点的x,y坐标
+                const nodeX = targetNode.x;
+                const nodeY = targetNode.y;
+                
+                // 获取SVG容器尺寸
+                const parent = this.svg.node().getBoundingClientRect();
+                const containerCenterX = parent.width / 2;
+                const containerCenterY = parent.height / 2;
+                
+                // 获取当前变换状态
+                const currentTransform = d3.zoomTransform(this.svg.node());
+                
+                // 计算新的变换，使节点在数据坐标系中的位置移动到容器中心
+                const newTranslateX = containerCenterX - nodeX * currentTransform.k;
+                const newTranslateY = containerCenterY - nodeY * currentTransform.k;
+                
+                // 平滑过渡到目标位置
+                this.svg.transition()
+                    .duration(750)
+                    .call(this.zoom.transform, d3.zoomIdentity.translate(newTranslateX, newTranslateY).scale(currentTransform.k));
+            }
+            fitToScreen() {
+                // 如果有选中的节点，以选中节点为中心，否则使用整个视图
+                if (this.selectedNode) {
+                    this.centerOnNode(this.selectedNode);
+                } else {
+                    const bounds = this.g.node().getBBox();
+                    const parent = this.svg.node().getBoundingClientRect();
+                    const fullWidth = parent.width, fullHeight = parent.height;
+                    const width = bounds.width, height = bounds.height;
+                    const midX = bounds.x + width / 2, midY = bounds.y + height / 2;
+                    if (width == 0 || height == 0) return;
+                    const scale = Math.min(fullWidth / width, fullHeight / height) * 0.8;
+                    const translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
+                    this.svg.transition().call(this.zoom.transform, d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale));
+                }
+            }
+
+            expandAll() {
+                // 展开所有有子节点的节点
+                for (const [nodeId, children] of this.children) {
+                    if (children.length > 0) {
+                        this.expandedNodes.add(nodeId);
+                    }
+                }
+                this.renderTree();
+            }
+            
+            collapseAll() {
+                // 收缩所有节点，保留根节点展开
+                this.expandedNodes.clear();
+                this.renderTree();
+            }
+        }
+
+        // 初始化应用
+        const treeViewer = new D3TreeViewer();
+    </script>
+</body>
+</html>
